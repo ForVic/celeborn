@@ -21,6 +21,7 @@ import java.io.IOException;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Consumer;
 
 import org.apache.spark.*;
 import org.apache.spark.internal.config.package$;
@@ -33,6 +34,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import org.apache.celeborn.client.LifecycleManager;
+import org.apache.celeborn.client.ShuffleAssignment;
 import org.apache.celeborn.client.ShuffleClient;
 import org.apache.celeborn.client.security.CryptoHandler;
 import org.apache.celeborn.common.CelebornConf;
@@ -80,6 +82,7 @@ public class SparkShuffleManager implements ShuffleManager {
   private String appUniqueId;
 
   private LifecycleManager lifecycleManager;
+  private Consumer<ShuffleAssignment> shuffleAssignmentCallback;
   private ShuffleClient shuffleClient;
   private volatile SortShuffleManager _sortShuffleManager;
   private final ConcurrentHashMap.KeySetView<Integer, Boolean> sortShuffleIds =
@@ -162,6 +165,9 @@ public class SparkShuffleManager implements ShuffleManager {
           lifecycleManager = new LifecycleManager(appUniqueId, celebornConf);
           lifecycleManager.applicationCount().increment();
           lifecycleManager.registerCancelShuffleCallback(SparkUtils::cancelShuffle);
+          if (shuffleAssignmentCallback != null) {
+            lifecycleManager.registerShuffleAssignmentCallback(shuffleAssignmentCallback);
+          }
           if (celebornConf.clientStageRerunEnabled()) {
             MapOutputTrackerMaster mapOutputTracker =
                 (MapOutputTrackerMaster) SparkEnv.get().mapOutputTracker();
@@ -509,6 +515,17 @@ public class SparkShuffleManager implements ShuffleManager {
               + "to avoid falling back to vanilla Spark SortShuffleManager for ShuffleManger defined in user jar.",
           key,
           defaultValue);
+    }
+  }
+
+  /**
+   * Registers a driver-side callback receiving the partition-to-worker slot assignment of each
+   * shuffle. It also applies to a LifecycleManager initialized after the registration.
+   */
+  public synchronized void registerShuffleAssignmentCallback(Consumer<ShuffleAssignment> callback) {
+    shuffleAssignmentCallback = callback;
+    if (lifecycleManager != null) {
+      lifecycleManager.registerShuffleAssignmentCallback(callback);
     }
   }
 

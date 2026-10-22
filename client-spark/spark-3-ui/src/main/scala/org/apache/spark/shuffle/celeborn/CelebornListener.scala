@@ -19,11 +19,15 @@ package org.apache.spark.shuffle.celeborn
 
 import java.util.concurrent.atomic.AtomicLong
 
+import scala.collection.JavaConverters._
+
 import org.apache.spark.SparkConf
 import org.apache.spark.internal.Logging
 import org.apache.spark.scheduler._
 import org.apache.spark.util.Utils
 import org.apache.spark.util.kvstore.KVStore
+
+import org.apache.celeborn.common.CelebornConf
 
 /**
  * Collects Celeborn shuffle metrics into the Spark KVStore for live UI and
@@ -51,6 +55,13 @@ private[celeborn] class CelebornListener(
 
   private val lastUpdateTimestamp = new AtomicLong(-1L)
   private val updateIntervalMillis = 5000L
+
+  private val retainedShuffles = {
+    val key = CelebornConf.CLIENT_SPARK_UI_RETAINED_SHUFFLES.key
+    val celebornConf = new CelebornConf()
+    conf.getOption(s"spark.$key").foreach(celebornConf.set(key, _))
+    celebornConf.clientSparkUiRetainedShuffles
+  }
 
   def register(sc: org.apache.spark.SparkContext): Unit = {
     sc.addSparkListener(this)
@@ -116,7 +127,29 @@ private[celeborn] class CelebornListener(
         pluginEnabled = true
         kvstore.write(new CelebornExtensionEnabledUIData())
       }
+    case e: CelebornShuffleAssignmentEvent =>
+      if (pluginEnabled) {
+        onShuffleAssignment(e)
+      }
     case _ =>
+  }
+
+  private def onShuffleAssignment(event: CelebornShuffleAssignmentEvent): Unit = {
+    val uiDataClass = classOf[ShuffleAssignmentUIData]
+    kvstore.write(ShuffleAssignmentUIData(
+      event.shuffleId,
+      event.appShuffleId,
+      event.numPartitions,
+      event.stageEnded,
+      event.workers))
+    val excess = kvstore.count(uiDataClass) - retainedShuffles
+    if (excess > 0) {
+      val evicted = Utils.tryWithResource(
+        kvstore.view(uiDataClass).max(excess).closeableIterator()) { iter =>
+        iter.asScala.map(_.shuffleId).toList
+      }
+      evicted.foreach(shuffleId => kvstore.delete(uiDataClass, shuffleId))
+    }
   }
 
   override def onApplicationEnd(applicationEnd: SparkListenerApplicationEnd): Unit = {

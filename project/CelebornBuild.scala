@@ -1186,6 +1186,7 @@ trait SparkClientProjects {
       .dependsOn(CelebornMaster.master % "test->test;compile->compile")
       .dependsOn(CelebornWorker.worker % "test->test;compile->compile")
       .dependsOn(sparkClient % "test->test;compile->compile")
+      .dependsOn(sparkClientUi % "test->compile")
       .settings (
         commonSettings,
         libraryDependencies ++= Seq(

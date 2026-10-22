@@ -17,7 +17,10 @@
 
 package org.apache.spark.shuffle.celeborn
 
+import scala.collection.JavaConverters._
+
 import com.fasterxml.jackson.annotation.JsonIgnore
+import org.apache.spark.util.Utils
 import org.apache.spark.util.kvstore.{KVIndex, KVStore}
 
 private[celeborn] case class AggregatedTaskInfoUIData(
@@ -46,6 +49,19 @@ private[celeborn] class CelebornBuildInfoUIData(
   @JsonIgnore
   @KVIndex
   def id: String = classOf[CelebornBuildInfoUIData].getName
+}
+
+/** Latest slot assignment of a shuffle, keyed by the Celeborn shuffle id. */
+private[celeborn] case class ShuffleAssignmentUIData(
+    shuffleId: Int,
+    appShuffleId: Int,
+    numPartitions: Int,
+    stageEnded: Boolean,
+    workers: Seq[CelebornWorkerSlots]) {
+
+  @JsonIgnore
+  @KVIndex
+  def id: Int = shuffleId
 }
 
 /**
@@ -88,6 +104,21 @@ private[celeborn] class CelebornStatusStore(store: KVStore) {
       store.read(kClass, kClass.getName)
     } catch {
       case _: NoSuchElementException => new CelebornBuildInfoUIData(Seq.empty)
+    }
+  }
+
+  /** Retained shuffle assignments, in ascending Celeborn shuffle id order. */
+  def shuffleAssignments(): Seq[ShuffleAssignmentUIData] = {
+    Utils.tryWithResource(store.view(classOf[ShuffleAssignmentUIData]).closeableIterator()) {
+      iter => iter.asScala.toList
+    }
+  }
+
+  def shuffleAssignment(shuffleId: Int): Option[ShuffleAssignmentUIData] = {
+    try {
+      Some(store.read(classOf[ShuffleAssignmentUIData], shuffleId))
+    } catch {
+      case _: NoSuchElementException => None
     }
   }
 

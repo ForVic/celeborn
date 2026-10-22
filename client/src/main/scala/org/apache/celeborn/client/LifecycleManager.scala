@@ -898,6 +898,8 @@ class LifecycleManager(val appUniqueId: String, val conf: CelebornConf) extends 
       // Fifth, reply the allocated partition location to ShuffleClient.
       logInfo(s"Handle RegisterShuffle Success for $shuffleId.")
       val allPrimaryPartitionLocations = slots.asScala.flatMap(_._2._1.asScala).toArray
+      // Report before the reply, so that it precedes any split, revive or stage end.
+      reportShuffleAssignment(shuffleId, stageEnded = false)
       replyRegisterShuffle(RegisterShuffleResponse(
         StatusCode.SUCCESS,
         allPrimaryPartitionLocations,
@@ -1244,6 +1246,8 @@ class LifecycleManager(val appUniqueId: String, val conf: CelebornConf) extends 
     }
 
     if (commitManager.tryFinalCommit(shuffleId)) {
+      // Report before the locations are cleared below.
+      reportShuffleAssignment(shuffleId, stageEnded = true)
       // Here we only clear PartitionLocation info in shuffleAllocatedWorkers.
       // Since rerun or speculation task may running after we handle StageEnd.
       workerSnapshots(shuffleId).asScala.foreach { case (_, partitionLocationInfo) =>
@@ -2212,6 +2216,26 @@ class LifecycleManager(val appUniqueId: String, val conf: CelebornConf) extends 
   def registerCelebornSkewShuffleCheckCallback(callback: function.Function[Integer, Boolean])
       : Unit = {
     celebornSkewShuffleCheckCallback = Some(callback)
+  }
+
+  @volatile private var shuffleAssignmentCallback: Option[Consumer[ShuffleAssignment]] = None
+  def registerShuffleAssignmentCallback(callback: Consumer[ShuffleAssignment]): Unit = {
+    shuffleAssignmentCallback = Some(callback)
+  }
+
+  private def reportShuffleAssignment(shuffleId: Int, stageEnded: Boolean): Unit = {
+    shuffleAssignmentCallback.foreach { callback =>
+      try {
+        callback.accept(ShuffleAssignment.snapshot(
+          shuffleId,
+          celebornShuffleIdToAppShuffleIdMap.getOrDefault(shuffleId, shuffleId),
+          stageEnded,
+          workerSnapshots(shuffleId)))
+      } catch {
+        case NonFatal(e) =>
+          logWarning(s"Failed to report the slot assignment of shuffle $shuffleId.", e)
+      }
+    }
   }
 
   // Initialize at the end of LifecycleManager construction.

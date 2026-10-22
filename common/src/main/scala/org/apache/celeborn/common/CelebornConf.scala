@@ -1137,6 +1137,7 @@ class CelebornConf(loadDefaults: Boolean) extends Cloneable with Logging with Se
     get(CLIENT_ADAPTIVE_OPTIMIZE_SKEWED_PARTITION_READ_ENABLED)
   def clientShuffleDataLostOnUnknownWorkerEnabled: Boolean =
     get(CLIENT_SHUFFLE_DATA_LOST_ON_UNKNOWN_WORKER_ENABLED)
+  def clientSparkUiRetainedShuffles: Int = get(CLIENT_SPARK_UI_RETAINED_SHUFFLES)
 
   // //////////////////////////////////////////////////////
   //                   Client Shuffle                    //
@@ -6619,6 +6620,17 @@ object CelebornConf extends Logging {
         "When false, data clients are created serially.")
       .booleanConf
       .createWithDefault(true)
+
+  val CLIENT_SPARK_UI_RETAINED_SHUFFLES: ConfigEntry[Int] =
+    buildConf("celeborn.client.spark.ui.retainedShuffles")
+      .categories("client")
+      .version("1.0.0")
+      .doc(
+        "How many shuffle slot assignments the Celeborn tab of the Spark UI and History Server " +
+          "remembers. Beyond this limit, the shuffles with the lowest ids are dropped.")
+      .intConf
+      .checkValue(_ > 0, "Value must be positive.")
+      .createWithDefault(1000)
 
   val CLIENT_CHUNK_PREFETCH_ENABLED: ConfigEntry[Boolean] =
     buildConf("celeborn.client.chunk.prefetch.enabled")

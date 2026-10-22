@@ -54,6 +54,8 @@ private[celeborn] class CelebornShufflePage(parent: CelebornUITab)
     val taskInfo = store.aggregatedTaskInfo()
     val properties = store.celebornProperties()
     val buildInfo = store.buildInfo()
+    val assignments = store.shuffleAssignments().sortBy(-_.shuffleId)
+    val assignedWorkers = assignments.flatMap(_.workers)
 
     val writeBytes = taskInfo.shuffleWriteBytes
     val readBytes = taskInfo.shuffleReadBytes
@@ -65,6 +67,16 @@ private[celeborn] class CelebornShufflePage(parent: CelebornUITab)
       if (ms <= 0) "N/A" else f"${bytes.toDouble / 1000.0 / 1000.0 / (ms.toDouble / 1000.0)}%.2f"
     def pct(part: Long, total: Long): String =
       if (total <= 0) "N/A" else f"${part.toDouble * 100.0 / total.toDouble}%.1f%%"
+    def assignmentSummary: String =
+      if (assignments.isEmpty) {
+        "N/A"
+      } else {
+        s"${ShuffleAssignmentTables.plural(assignments.size, "shuffle")} on " +
+          s"${ShuffleAssignmentTables.plural(assignedWorkers.map(_.workerId).distinct.size, "worker")} | " +
+          s"Slots: ${assignedWorkers.map(_.primarySlots.toLong).sum} primary, " +
+          s"${assignedWorkers.map(_.replicaSlots.toLong).sum} replica | " +
+          s"Reallocated (split/revive): ${assignedWorkers.map(_.reallocatedSlots.toLong).sum}"
+      }
 
     val summary =
       <div>
@@ -84,6 +96,10 @@ private[celeborn] class CelebornShufflePage(parent: CelebornUITab)
       }
           </li>
           <li>
+            <strong>Shuffle Assignments: </strong>
+            {assignmentSummary}
+          </li>
+          <li>
             <strong>Shuffle Duration (write+read) / Task Duration: </strong>
             {
         s"${pct(writeMs + readMs, durationMs)} (Write ${pct(
@@ -101,6 +117,9 @@ private[celeborn] class CelebornShufflePage(parent: CelebornUITab)
       fixedWidth = true,
       headerClasses = headerClasses)
 
+    val shuffleUrl = (shuffleId: Int) =>
+      s"${UIUtils.prependBaseUri(request, parent.basePath)}/${parent.prefix}/shuffle/?id=$shuffleId"
+
     val buildInfoTable = UIUtils.listingTable(
       propertyHeader,
       propertyRow,
@@ -111,6 +130,17 @@ private[celeborn] class CelebornShufflePage(parent: CelebornUITab)
     val content =
       <span>
         {summary}
+        <span class="collapse-aggregated-celebornShuffleAssignments collapse-table"
+            onClick="collapseTable('collapse-aggregated-celebornShuffleAssignments',
+            'aggregated-celebornShuffleAssignments')">
+          <h4>
+            <span class="collapse-table-arrow arrow-closed"></span>
+            <a>Shuffle Assignments ({assignments.size})</a>
+          </h4>
+        </span>
+        <div class="aggregated-celebornShuffleAssignments collapsible-table collapsed">
+          {ShuffleAssignmentTables.shuffleTable(assignments, shuffleUrl)}
+        </div>
         <span class="collapse-aggregated-celebornBuildInfo collapse-table"
             onClick="collapseTable('collapse-aggregated-celebornBuildInfo',
             'aggregated-celebornBuildInfo')">

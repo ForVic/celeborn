@@ -26,5 +26,6 @@ private[celeborn] class CelebornUITab(val store: CelebornStatusStore, sparkUI: S
   override val name: String = "Celeborn"
 
   attachPage(new CelebornShufflePage(this))
+  attachPage(new CelebornShuffleAssignmentPage(this))
   sparkUI.attachTab(this)
 }
